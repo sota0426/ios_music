@@ -8,6 +8,7 @@ final class AuthManager {
     // ★あなたの値に置き換え
     private let kClientID = "07ae1968-dfca-4a9a-911d-4c4ff2adbfcc"
     private let kAuthority = "https://login.microsoftonline.com/organizations"
+    private let kRedirectUri = "msauth.sota.ios-music://auth"
     // OneDrive を使う予定なら Files.Read などを含める
     private let kScopes = ["User.Read", "Files.Read"] 
 
@@ -18,7 +19,13 @@ final class AuthManager {
         do {
             guard let authorityURL = URL(string: kAuthority) else { return }
             let authority = try MSALAADAuthority(url: authorityURL)
-            let config = MSALPublicClientApplicationConfig(clientId: kClientID, redirectUri: nil, authority: authority)
+
+            // Use broker-compatible redirect URI: msauth.<bundle_id>://auth
+            // Bundle ID = sota.ios-music => redirect = msauth.sota.ios-music://auth
+            let config = MSALPublicClientApplicationConfig(clientId: kClientID, redirectUri: kRedirectUri, authority: authority)
+
+            // Ensure keychain sharing group matches entitlements
+            config.cacheConfig.keychainSharingGroup = "com.microsoft.adalcache"
             self.application = try MSALPublicClientApplication(configuration: config)
         } catch {
             print("MSAL init error: \(error)")
@@ -138,4 +145,3 @@ extension AuthManager {
             }
         }
     }
-
