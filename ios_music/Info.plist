@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+                    <!-- ▼ これを削除：Storyboard自動起動をやめる
+                    <key>UISceneStoryboardFile</key>
+                    <string>Main</string>
+                    -->
+                </dict>
+            </array>
+        </dict>
+    </dict>
+
+    <!-- MSAL の URL スキーム： msautｈ.<Bundle Identifier> -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <!-- 任意だが入れておくとわかりやすい -->
+            <key>CFBundleURLName</key>
+            <string>msauth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <!-- ★あなたの Bundle Identifier に合わせること -->
+                <string>msauth.sota.ios-music</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- MSAL が使用するクエリスキーム -->
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>msauth</string>
+        <string>msauthv2</string>
+        <string>msauthv3</string>
+    </array>
+</dict>
+</plist>
