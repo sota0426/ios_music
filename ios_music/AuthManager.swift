@@ -87,18 +87,27 @@ final class AuthManager {
         }
     }
 
-    func signOut(completion: @escaping (Result<Void, Error>) -> Void) {
+
+    func signOut(from authPresentationViewController: UIViewController, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let app = application else { return }
         currentAccount { account in
             guard let account = account else { completion(.success(())); return }
-            let signoutParams = MSALSignoutParameters(webviewParameters: self.webParams ?? MSALWebviewParameters(authPresentationViewController: UIViewController()))
+            
+            // 修正: 適切なUIViewControllerを渡す
+            let webParams = MSALWebviewParameters(authPresentationViewController: authPresentationViewController)
+            let signoutParams = MSALSignoutParameters(webviewParameters: webParams)
             signoutParams.signoutFromBrowser = false
+            
             app.signout(with: account, signoutParameters: signoutParams) { _, error in
-                if let error = error { completion(.failure(error)); return }
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
                 completion(.success(()))
             }
         }
     }
+
 }
 
 

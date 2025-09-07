@@ -122,17 +122,19 @@ final class OneDriveViewController: UITableViewController {
     // MARK: - Sign out
 
     @objc private func signOut() {
-        AuthManager.shared.signOut { result in
+        AuthManager.shared.signOut(from: self) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success:
                     let login = LoginViewController()
                     let nav = UINavigationController(rootViewController: login)
-                    if let sceneDelegate = self.view.window?.windowScene?.delegate as? SceneDelegate,
-                       let window = sceneDelegate.window {
+                    
+                    // 画面遷移ロジックをシンプルで安全なものに修正
+                    if let window = self.view.window {
                         window.rootViewController = nav
                         UIView.transition(with: window, duration: 0.3, options: .transitionCrossDissolve, animations: nil)
                     } else {
+                        // 何らかの理由でwindowが取得できない場合のフォールバック（ここは発生しないはずですが、念のため）
                         self.present(nav, animated: true)
                     }
                 case .failure(let error):
@@ -141,4 +143,6 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
+
+
 }
