@@ -1,39 +1,48 @@
 //
-//  AppDelegate.swift
-//  ios_music
+// AppDelegate.swift
+// ios_music
 //
-//  Created by 飯森壮太 on 2025/09/03.
+// Created by 飯森壮太 on 2025/09/03.
 //
+
 import UIKit
 import MSAL
 
+/// アプリのデリゲートクラスです。
+/// アプリケーション全体のイベント（起動、バックグラウンド移行など）を管理します。
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
-        return true
-    }
+  /// アプリの起動が完了したときに呼ばれる最初のメソッドです。
+  /// ここにアプリの初期設定を記述します。
+  func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+    return true
+  }
 
-    // MARK: UISceneSession Lifecycle
+  // MARK: UISceneSession Lifecycle
 
-    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        // Called when a new scene session is being created.
-        // Use this method to select a configuration to create the new scene with.
-        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
-    }
+  /// 新しいシーンセッションが作成されるときに呼ばれます。
+  func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+    return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+  }
 
-    func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
-        // Called when the user discards a scene session.
-        // If any sessions were discarded while the application was not running, this will be called shortly after application:didFinishLaunchingWithOptions.
-        // Use this method to release any resources that were specific to the discarded scenes, as they will not return.
-    }
+  /// ユーザーがシーンセッションを破棄したときに呼ばれます。
+  func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
+  }
 
-    // Append for MSAL
-    // Inside AppDelegate...
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        
-        return MSALPublicClientApplication.handleMSALResponse(url, sourceApplication: options[UIApplication.OpenURLOptionsKey.sourceApplication] as? String)
-    }
+  // --- MSALのために追加する重要な部分 ---
+    /// アプリが外部からURLを開くときに呼ばれるメソッドです。
+    ///
+    /// Microsoftアカウントの認証が完了すると、Webブラウザがこのメソッドを使って、
+    /// 認証結果を含むURLをアプリに送り返します。
+    /// MSALライブラリは、このURLを処理して認証を完了させます。
+  func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+    
+        // MSALにURLを渡して、認証の結果を処理させます。
+        // MSALPublicClientApplication.handleMSALResponseは、受け取ったURLから
+        // 認証成功・失敗の情報を解析し、MSALライブラリの内部状態を更新します。
+        // この処理がないと、認証が完了してもアプリがトークンを受け取れません。
+    return MSALPublicClientApplication.handleMSALResponse(url, sourceApplication: options[UIApplication.OpenURLOptionsKey.sourceApplication] as? String)
+  }
 
 }

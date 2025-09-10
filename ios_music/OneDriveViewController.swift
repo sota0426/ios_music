@@ -1,45 +1,132 @@
 import UIKit
 import SafariServices
+import AVFoundation
 
+/// OneDriveの音楽ファイルとフォルダを階層的に表示し、音楽を再生するビューコントローラーです。
 final class OneDriveViewController: UITableViewController {
-
-    // 現在のフォルダID（nil ならルート）
-    private let folderId: String?
+    
+    // --- プロパティ ---
     private var items: [DriveItem] = []
-
-    init(folderId: String? = nil, title: String = "OneDrive") {
-        self.folderId = folderId
+    private var currentFolderId: String? = nil
+    
+    // --- UIコンポーネント ---
+    private lazy var playbackContainer: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemBackground
+        view.layer.shadowColor = UIColor.black.cgColor
+        view.layer.shadowOpacity = 0.1
+        view.layer.shadowRadius = 5
+        view.layer.shadowOffset = .zero
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private let playbackStatusLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 1
+        label.textColor = .systemGray
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var playPauseButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(togglePlayback), for: .touchUpInside)
+        return button
+    }()
+    
+    // --- 初期化メソッド ---
+    init(folderId: String? = nil, folderName: String? = "OneDrive") {
         super.init(style: .insetGrouped)
-        self.title = title
+        self.currentFolderId = folderId
+        self.title = folderName
     }
-
+    
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
+    
+    // --- ライフサイクルメソッド ---
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-
-        // サインアウト
-        let signOutButton = UIBarButtonItem(title: "Sign Out", style: .plain, target: self, action: #selector(signOut))
-        navigationItem.rightBarButtonItem = signOutButton
-
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
-        tableView.rowHeight = 54
-
-        // Pull to refresh
+        
+        setupUI()
+        setupMusicPlayerCallbacks()
+        
+        // Pull to Refresh
         refreshControl = UIRefreshControl()
         refreshControl?.addTarget(self, action: #selector(reload), for: .valueChanged)
-
-        // 初回ロード
+        
         reload()
     }
-
+    
+    private func setupUI() {
+        view.backgroundColor = .systemGroupedBackground
+        
+        let signOutButton = UIBarButtonItem(title: "Sign Out", style: .plain, target: self, action: #selector(signOut))
+        navigationItem.rightBarButtonItem = signOutButton
+        
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        tableView.rowHeight = 54
+        
+        view.addSubview(playbackContainer)
+        playbackContainer.addSubview(playbackStatusLabel)
+        playbackContainer.addSubview(playPauseButton)
+        
+        NSLayoutConstraint.activate([
+            playbackContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            playbackContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            playbackContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            playbackContainer.heightAnchor.constraint(equalToConstant: 60),
+            
+            playbackStatusLabel.leadingAnchor.constraint(equalTo: playbackContainer.leadingAnchor, constant: 20),
+            playbackStatusLabel.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
+            playbackStatusLabel.trailingAnchor.constraint(equalTo: playPauseButton.leadingAnchor, constant: -10),
+            
+            playPauseButton.trailingAnchor.constraint(equalTo: playbackContainer.trailingAnchor, constant: -20),
+            playPauseButton.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 40),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 40)
+        ])
+    }
+    
+    private func setupMusicPlayerCallbacks() {
+        MusicPlayer.shared.onPlaybackStatusChange = { [weak self] statusText in
+            self?.playbackStatusLabel.text = statusText
+            if MusicPlayer.shared.isPlaying {
+                self?.playPauseButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+            } else {
+                self?.playPauseButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+            }
+        }
+        
+        MusicPlayer.shared.onPlaybackFinish = { [weak self] in
+            self?.playbackStatusLabel.text = "再生が完了しました。"
+            self?.playPauseButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        }
+    }
+    
+    // --- データ取得ロジック ---
     @objc private func reload() {
-        AuthManager.shared.withAccessToken(from: self)  { result in
-            DispatchQueue.main.async {
+        AuthManager.shared.withAccessToken(from: self) { result in
+            DispatchQueue.main.async {   // ← execute: を書かない
                 switch result {
                 case .success(let token):
-                    self.fetchItems(token: token)
+                    GraphClient.shared.listMusicItems(token: token, folderId: self.currentFolderId) { [weak self] result in
+                        DispatchQueue.main.async {
+                            guard let self = self else { return }
+                            self.endRefreshing()
+                            switch result {
+                            case .success(let items):
+                                self.items = items
+                                self.tableView.reloadData()
+                            case .failure(let error):
+                                self.showError(error.localizedDescription)
+                            }
+                        }
+                    }
                 case .failure(let error):
                     self.endRefreshing()
                     self.showError(error.localizedDescription)
@@ -47,81 +134,98 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
-
-    private func fetchItems(token: String) {
-        GraphClient.shared.listChildren(token: token, folderId: folderId) { result in
-            DispatchQueue.main.async {
-                self.endRefreshing()
-                switch result {
-                case .success(let list):
-                    self.items = list.sorted(by: { (a, b) -> Bool in
-                        // フォルダを先に、次に名前でソート
-                        let aIsFolder = a.folder != nil
-                        let bIsFolder = b.folder != nil
-                        if aIsFolder != bIsFolder { return aIsFolder && !bIsFolder }
-                        return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-                    })
-                    self.tableView.reloadData()
-                case .failure(let error):
-                    self.showError(error.localizedDescription)
-                }
-            }
-        }
+    
+    /// 与えられたアイテムが音楽ファイルかどうかを判定します。
+    private func isMusicFile(item: DriveItem) -> Bool {
+        guard let mimeType = item.file?.mimeType else { return false }
+        return mimeType.hasPrefix("audio/")
     }
-
+    
     private func endRefreshing() { if self.refreshControl?.isRefreshing == true { self.refreshControl?.endRefreshing() } }
-
+    
     private func showError(_ message: String) {
         let ac = UIAlertController(title: "エラー", message: message, preferredStyle: .alert)
         ac.addAction(UIAlertAction(title: "OK", style: .default))
         present(ac, animated: true)
     }
-
+    
     // MARK: - TableView
-
     override func numberOfSections(in tableView: UITableView) -> Int { 1 }
-
+    
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
-
+    
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = items[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-
+        
         var config = cell.defaultContentConfiguration()
         config.text = item.name
-
+        
         if item.folder != nil {
-            config.secondaryText = "\(item.folder?.childCount ?? 0) items"
+            config.image = UIImage(systemName: "folder.fill")
             cell.accessoryType = .disclosureIndicator
-            config.image = UIImage(systemName: "folder")
         } else {
-            config.secondaryText = item.file?.mimeType
+            config.image = UIImage(systemName: "music.note")
             cell.accessoryType = .none
-            config.image = UIImage(systemName: "doc")
         }
-
+        
         cell.contentConfiguration = config
         return cell
     }
-
+    
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = items[indexPath.row]
-
+        
         if item.folder != nil {
-            // フォルダへドリルダウン
-            let next = OneDriveViewController(folderId: item.id, title: item.name)
-            navigationController?.pushViewController(next, animated: true)
-        } else if let webUrl = item.webUrl, let url = URL(string: webUrl) {
-            // ファイルは webUrl を表示（簡易）
-            let safari = SFSafariViewController(url: url)
-            present(safari, animated: true)
+            let nextVC = OneDriveViewController(folderId: item.id, folderName: item.name)
+            navigationController?.pushViewController(nextVC, animated: true)
+        } else {
+            playMusic(item: item)
         }
     }
-
+    
+    // MARK: - 音楽再生
+    
+    /// 選択された音楽ファイルの再生を開始します。
+    private func playMusic(item: DriveItem) {
+        playbackStatusLabel.text = "\(item.name) を読み込み中..."
+        
+        AuthManager.shared.withAccessToken(from: self) { [weak self] result in
+            guard let self = self else { return }
+            
+            switch result {
+            case .success(let token):
+                GraphClient.shared.getDownloadUrl(for: item.id, token: token) { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success(let urlString):
+                            guard let url = URL(string: urlString) else {
+                                self.showError("無効なダウンロードURLです。")
+                                self.playbackStatusLabel.text = "再生エラー"
+                                return
+                            }
+                            MusicPlayer.shared.play(from: url, trackName: item.name)
+                        case .failure(let error):
+                            self.showError(error.localizedDescription)
+                            self.playbackStatusLabel.text = "再生エラー"
+                        }
+                    }
+                }
+            case .failure(let error):
+                self.showError(error.localizedDescription)
+                self.playbackStatusLabel.text = "再生エラー"
+            }
+        }
+    }
+    
+    @objc private func togglePlayback() {
+        MusicPlayer.shared.togglePlayback()
+    }
+    
     // MARK: - Sign out
-
     @objc private func signOut() {
+        MusicPlayer.shared.stop() // サインアウト時に再生を停止
         AuthManager.shared.signOut(from: self) { result in
             DispatchQueue.main.async {
                 switch result {
@@ -129,12 +233,10 @@ final class OneDriveViewController: UITableViewController {
                     let login = LoginViewController()
                     let nav = UINavigationController(rootViewController: login)
                     
-                    // 画面遷移ロジックをシンプルで安全なものに修正
                     if let window = self.view.window {
                         window.rootViewController = nav
                         UIView.transition(with: window, duration: 0.3, options: .transitionCrossDissolve, animations: nil)
                     } else {
-                        // 何らかの理由でwindowが取得できない場合のフォールバック（ここは発生しないはずですが、念のため）
                         self.present(nav, animated: true)
                     }
                 case .failure(let error):
@@ -143,6 +245,4 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
-
-
 }
