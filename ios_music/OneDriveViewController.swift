@@ -114,38 +114,93 @@ final class OneDriveViewController: UITableViewController {
             playbackContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             playbackContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             playbackContainer.heightAnchor.constraint(equalToConstant: 60),
-            
-            previousButton.trailingAnchor.constraint(equalTo: playPauseButton.leadingAnchor, constant: -10),
+
+            previousButton.leadingAnchor.constraint(equalTo: playbackContainer.leadingAnchor, constant: 20),
             previousButton.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
             previousButton.widthAnchor.constraint(equalToConstant: 30),
             previousButton.heightAnchor.constraint(equalToConstant: 30),
             
-            playPauseButton.trailingAnchor.constraint(equalTo: stopButton.leadingAnchor, constant: -10),
+            playPauseButton.leadingAnchor.constraint(equalTo: previousButton.trailingAnchor, constant: 10),
             playPauseButton.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
             playPauseButton.widthAnchor.constraint(equalToConstant: 30),
             playPauseButton.heightAnchor.constraint(equalToConstant: 30),
             
-            stopButton.trailingAnchor.constraint(equalTo: nextButton.leadingAnchor, constant: -10),
+            stopButton.leadingAnchor.constraint(equalTo: playPauseButton.trailingAnchor, constant: 10),
             stopButton.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
             stopButton.widthAnchor.constraint(equalToConstant: 30),
             stopButton.heightAnchor.constraint(equalToConstant: 30),
             
-            nextButton.trailingAnchor.constraint(equalTo: playbackContainer.trailingAnchor, constant: -20),
+            nextButton.leadingAnchor.constraint(equalTo: stopButton.trailingAnchor, constant: 10),
             nextButton.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
             nextButton.widthAnchor.constraint(equalToConstant: 30),
             nextButton.heightAnchor.constraint(equalToConstant: 30),
             
-            playbackStatusLabel.leadingAnchor.constraint(equalTo: playbackContainer.leadingAnchor, constant: 20),
-            playbackStatusLabel.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor),
-            playbackStatusLabel.trailingAnchor.constraint(equalTo: previousButton.leadingAnchor, constant: -10)
+            // ← ファイル名ラベルはボタン群の右側へ
+            playbackStatusLabel.leadingAnchor.constraint(equalTo: nextButton.trailingAnchor, constant: 20),
+            playbackStatusLabel.trailingAnchor.constraint(equalTo: playbackContainer.trailingAnchor, constant: -20),
+            playbackStatusLabel.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor)
         ])
+
         
+
+        // 左側に複数ボタンを並べる
+        var leftButtons: [UIBarButtonItem] = []
+
+        let downloadButton = UIBarButtonItem(
+            title: "Offline",
+            style: .plain,
+            target: self,
+            action: #selector(downloadFolderForOffline)
+        )
+        leftButtons.append(downloadButton)
+
+        if currentFolderId != nil {
+            let rootButton = UIBarButtonItem(
+                title: "Root",
+                style: .plain,
+                target: self,
+                action: #selector(goToRoot)
+            )
+            leftButtons.append(rootButton)
+        }
+        let offlineListButton = UIBarButtonItem(
+            title: "オフライン一覧",
+            style: .plain,
+            target: self,
+            action: #selector(showOfflineList)
+        )
+        leftButtons.append(offlineListButton)
+        navigationItem.leftBarButtonItems = leftButtons
+
+
+
+
         // Pull to Refresh
         refreshControl = UIRefreshControl()
         refreshControl?.addTarget(self, action: #selector(reload), for: .valueChanged)
         
         reload()
     }
+
+    @objc private func goToRoot(){
+        navigationController?.popToRootViewController(animated:true)
+    }
+
+    private func isOfflineAvailable(for item: DriveItem) -> Bool {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let offlineRoot = docs.appendingPathComponent("OneDriveOffline")
+
+        if let enumerator = FileManager.default.enumerator(at: offlineRoot, includingPropertiesForKeys: nil) {
+            for case let fileURL as URL in enumerator {
+                if fileURL.lastPathComponent == item.name {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+
     
     // --- Remote Command Center 設定 ---
     private func setupRemoteTransportControls() {
@@ -261,43 +316,116 @@ final class OneDriveViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = items[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-        
-        var config = cell.defaultContentConfiguration()
-        config.text = item.name
-        
+
+        // アイコン
+        let icon = UIImageView()
         if item.folder != nil {
-            config.image = UIImage(systemName: "folder.fill")
+            icon.image = UIImage(systemName: "folder.fill")
+        } else {
+            icon.image = UIImage(systemName: "music.note")
+        }
+
+        // オフライン状態マーク
+        let offlineIcon = UIImageView()
+        if isOfflineAvailable(for: item) {
+            offlineIcon.image = UIImage(systemName: "checkmark.circle.fill") // ✅ ダウンロード済み
+            offlineIcon.tintColor = .systemGreen
+        } else if item.file != nil {
+            offlineIcon.image = UIImage(systemName: "arrow.down.circle") // ⬇️ ダウンロード可能
+            offlineIcon.tintColor = .systemBlue
+        }
+
+        // ファイル名ラベル
+        let nameLabel = UILabel()
+        nameLabel.text = item.name
+        nameLabel.font = UIFont.systemFont(ofSize: 16)
+        nameLabel.lineBreakMode = .byTruncatingMiddle
+
+        // 左側（アイコン＋オフラインマーク）
+        let leftStack = UIStackView(arrangedSubviews: [icon, offlineIcon])
+        leftStack.axis = .horizontal
+        leftStack.spacing = 6
+
+        // 全体スタック
+        let stack = UIStackView(arrangedSubviews: [leftStack, nameLabel])
+        stack.axis = .horizontal
+        stack.spacing = 12
+        stack.alignment = .center
+
+        // 既存ビュー削除（重複防止）
+        cell.contentView.subviews.forEach { $0.removeFromSuperview() }
+
+        cell.contentView.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 15),
+            stack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -15),
+            stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 5),
+            stack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -5)
+        ])
+
+        // アクセサリ設定
+        if item.folder != nil {
             cell.accessoryType = .disclosureIndicator
         } else {
-            config.image = UIImage(systemName: "music.note")
             cell.accessoryType = .none
         }
-        
-        cell.contentConfiguration = config
+
         return cell
     }
+
+
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = items[indexPath.row]
-        
+
         if item.folder != nil {
             let nextVC = OneDriveViewController(folderId: item.id, folderName: item.name)
             navigationController?.pushViewController(nextVC, animated: true)
         } else {
-            let musicItems = items.filter { isMusicFile(item: $0) }
+            // --- オフライン再生チェック ---
+            guard isOfflineAvailable(for: item) else {
+                showError("この曲はオフライン保存されていないため、再生できません。")
+                return
+            }
+
+            // 再生対象はオフラインファイルのみ
+            let musicItems = items.filter { isMusicFile(item: $0) && isOfflineAvailable(for: $0) }
+
             if let index = musicItems.firstIndex(where: { $0.id == item.id }) {
-                AuthManager.shared.withAccessToken(from: self) { [weak self] result in
-                    if case .success(let token) = result {
-                        self?.musicPlayer.playMusic(with: musicItems, at: index, token: token)
-                    } else if case .failure(let error) = result {
-                        self?.showError(error.localizedDescription)
-                    }
-                }
+                // ローカルファイルのURLを直接渡す
+                self.musicPlayer.playMusic(with: musicItems, at: index)
             }
         }
     }
+
+
     
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = items[indexPath.row]
+        
+        guard item.file != nil else { return nil }
+        
+        if isOfflineAvailable(for: item) {
+            let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] (_, _, completion) in
+                self?.deleteOfflineFile(for: item)
+                tableView.reloadRows(at: [indexPath], with: .automatic)
+                completion(true)
+            }
+            return UISwipeActionsConfiguration(actions: [deleteAction])
+        }
+        return nil
+    }
+
+    private func deleteOfflineFile(for item: DriveItem) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let offlineRoot = docs.appendingPathComponent("OneDriveOffline")
+        let filePath = offlineRoot.appendingPathComponent(item.name)
+        try? FileManager.default.removeItem(at: filePath)
+    }
+
+
     // --- 音楽再生ボタン ---
     @objc private func handlePreviousButtonTap() { musicPlayer.playPrevious() }
     @objc private func handlePlayPauseButtonTap() { musicPlayer.togglePlayback() }
@@ -326,6 +454,72 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
+
+
+    @objc private func downloadFolderForOffline() {
+        guard let folderId = currentFolderId else { return }
+        
+        AuthManager.shared.withAccessToken(from: self) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let token):
+                self.downloadFolderRecursively(folderId: folderId, folderName: self.title ?? "Offline", token: token)
+            case .failure(let error):
+                self.showError(error.localizedDescription)
+            }
+        }
+    }
+    private func downloadFolderRecursively(folderId: String, folderName: String, token: String) {
+        GraphClient.shared.listChildren(token: token, folderId: folderId) { result in
+            switch result {
+            case .success(let items):
+                for item in items {
+                    if let _ = item.folder {
+                        // サブフォルダを再帰的に処理
+                        self.downloadFolderRecursively(folderId: item.id, folderName: item.name, token: token)
+                    } else if self.isMusicFile(item: item) {
+                        self.downloadFile(item: item, folderName: folderName, token: token)
+                    }
+                }
+            case .failure(let error):
+                self.showError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func downloadFile(item: DriveItem, folderName: String, token: String) {
+        guard let url = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items/\(item.id)/content") else { return }
+        
+        var request = URLRequest(url: url)
+        request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let task = URLSession.shared.downloadTask(with: request) { localURL, response, error in
+            guard let localURL = localURL, error == nil else { return }
+            
+            do {
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                let targetDir = docs.appendingPathComponent("OneDriveOffline").appendingPathComponent(folderName)
+                try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
+                
+                let targetFile = targetDir.appendingPathComponent(item.name)
+                
+                // すでに存在していればスキップ
+                if FileManager.default.fileExists(atPath: targetFile.path) {
+                    print("⏩ Skip (already downloaded): \(targetFile)")
+                    return
+                }
+                
+                try FileManager.default.moveItem(at: localURL, to: targetFile)
+                print("✅ Saved offline: \(targetFile)")
+                
+            } catch {
+                print("❌ Save failed: \(error)")
+            }
+        }
+        task.resume()
+    }
+
+
 }
 
 // MARK: - MusicPlayerDelegate
@@ -359,4 +553,6 @@ extension OneDriveViewController: MusicPlayerDelegate {
     func musicPlayerDidRequestAuth(completion: @escaping (Result<String, Error>) -> Void) {
         AuthManager.shared.withAccessToken(from: self, completion)
     }
+
+
 }

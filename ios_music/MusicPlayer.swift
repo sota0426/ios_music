@@ -8,7 +8,6 @@ protocol MusicPlayerDelegate: AnyObject {
     func musicPlayerDidFinishPlaying()
     func musicPlayerDidStopPlayback()
     func musicPlayerDidReceiveError(message: String)
-    func musicPlayerDidRequestAuth(completion: @escaping (Result<String, Error>) -> Void)
 }
 
 final class MusicPlayer: NSObject {
@@ -24,44 +23,56 @@ final class MusicPlayer: NSObject {
         player?.timeControlStatus == .playing
     }
     
-    // --- 音楽再生開始 ---
-    func playMusic(with items: [DriveItem], at index: Int, token: String) {
+    // --- オフライン専用再生 ---
+    func playMusic(with items: [DriveItem], at index: Int) {
         guard items.indices.contains(index) else { return }
-        
         self.items = items
         self.currentIndex = index
-        
         let item = items[index]
-        delegate?.musicPlayerDidStartLoading(item: item)
         
-        // OneDrive のダウンロードURLを取得
-        guard let url = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items/\(item.id)/content") else {
-            delegate?.musicPlayerDidReceiveError(message: "音楽ファイルのURLが無効です")
+        // オフラインファイルチェック
+        guard let offlineURL = findOfflineFile(for: item) else {
+            delegate?.musicPlayerDidReceiveError(message: "オフライン保存されていないため再生できません。")
             return
         }
         
-        // 認証付きリクエストのために AVURLAsset を使う
-        let headers = ["Authorization": "Bearer \(token)"]
-        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-        let playerItem = AVPlayerItem(asset: asset)
+        delegate?.musicPlayerDidStartLoading(item: item)
         
-        // 古い通知を削除
-        if let currentItem = player?.currentItem {
-            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+        let playerItem = AVPlayerItem(url: offlineURL)
+        if player == nil {
+            player = AVPlayer(playerItem: playerItem)
+        } else {
+            player?.replaceCurrentItem(with: playerItem)
         }
         
-        // 新しいプレイヤー作成
-        player = AVPlayer(playerItem: playerItem)
-        
-        // 再生完了通知
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(handlePlaybackFinished),
-                                               name: .AVPlayerItemDidPlayToEndTime,
-                                               object: playerItem)
+        // 再生終了通知を登録
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePlaybackFinished),
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem
+        )
         
         player?.play()
         delegate?.musicPlayerDidStartPlaying(item: item)
     }
+    
+    // --- オフラインファイル探索 ---
+    private func findOfflineFile(for item: DriveItem) -> URL? {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let offlineRoot = docs.appendingPathComponent("OneDriveOffline")
+        
+        // 再帰的に対象ファイルを探す
+        if let enumerator = FileManager.default.enumerator(at: offlineRoot, includingPropertiesForKeys: nil) {
+            for case let fileURL as URL in enumerator {
+                if fileURL.lastPathComponent == item.name {
+                    return fileURL
+                }
+            }
+        }
+        return nil
+    }
+
     
     // --- 再生制御 ---
     func togglePlayback() {
@@ -96,31 +107,23 @@ final class MusicPlayer: NSObject {
     func playNext() {
         guard currentIndex + 1 < items.count else { return }
         currentIndex += 1
-        requestAuthAndPlay()
+        playMusic(with: items, at: currentIndex)
     }
     
     func playPrevious() {
         guard currentIndex - 1 >= 0 else { return }
         currentIndex -= 1
-        requestAuthAndPlay()
-    }
-    
-    // --- 認証リクエストを挟んで再生 ---
-    private func requestAuthAndPlay() {
-        delegate?.musicPlayerDidRequestAuth { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success(let token):
-                self.playMusic(with: self.items, at: self.currentIndex, token: token)
-            case .failure(let error):
-                self.delegate?.musicPlayerDidReceiveError(message: error.localizedDescription)
-            }
-        }
+        playMusic(with: items, at: currentIndex)
     }
     
     // --- 再生終了 ---
     @objc private func handlePlaybackFinished() {
         delegate?.musicPlayerDidFinishPlaying()
         playNext() // 自動で次の曲へ進めたい場合
+    }
+    
+    // --- 解放処理 ---
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }
