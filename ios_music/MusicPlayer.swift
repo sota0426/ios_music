@@ -1,73 +1,126 @@
+import Foundation
 import AVFoundation
 
-/// 音楽の再生とバックグラウンド再生を管理するクラスです。
-final class MusicPlayer {
+protocol MusicPlayerDelegate: AnyObject {
+    func musicPlayerDidStartLoading(item: DriveItem)
+    func musicPlayerDidStartPlaying(item: DriveItem)
+    func musicPlayerDidTogglePlayback(isPlaying: Bool)
+    func musicPlayerDidFinishPlaying()
+    func musicPlayerDidStopPlayback()
+    func musicPlayerDidReceiveError(message: String)
+    func musicPlayerDidRequestAuth(completion: @escaping (Result<String, Error>) -> Void)
+}
+
+final class MusicPlayer: NSObject {
     
-    static let shared = MusicPlayer()
-    
+    // --- プロパティ ---
     private var player: AVPlayer?
+    private var items: [DriveItem] = []
+    private var currentIndex: Int = 0
     
-    var onPlaybackStatusChange: ((String) -> Void)?
-    var onPlaybackFinish: (() -> Void)?
+    weak var delegate: MusicPlayerDelegate?
     
-    private init() {
-        // バックグラウンド再生を有効にするためのオーディオセッション設定
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("AVAudioSession configuration error: \(error.localizedDescription)")
-        }
+    private var isPlaying: Bool {
+        player?.timeControlStatus == .playing
     }
     
-    /// 指定されたURLの音楽を再生します。
-    func play(from url: URL, trackName: String) {
-        stop()
+    // --- 音楽再生開始 ---
+    func playMusic(with items: [DriveItem], at index: Int, token: String) {
+        guard items.indices.contains(index) else { return }
         
-        let playerItem = AVPlayerItem(url: url)
+        self.items = items
+        self.currentIndex = index
+        
+        let item = items[index]
+        delegate?.musicPlayerDidStartLoading(item: item)
+        
+        // OneDrive のダウンロードURLを取得
+        guard let url = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items/\(item.id)/content") else {
+            delegate?.musicPlayerDidReceiveError(message: "音楽ファイルのURLが無効です")
+            return
+        }
+        
+        // 認証付きリクエストのために AVURLAsset を使う
+        let headers = ["Authorization": "Bearer \(token)"]
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let playerItem = AVPlayerItem(asset: asset)
+        
+        // 古い通知を削除
+        if let currentItem = player?.currentItem {
+            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+        }
+        
+        // 新しいプレイヤー作成
         player = AVPlayer(playerItem: playerItem)
         
+        // 再生完了通知
         NotificationCenter.default.addObserver(self,
-                                               selector: #selector(playerDidFinishPlaying),
+                                               selector: #selector(handlePlaybackFinished),
                                                name: .AVPlayerItemDidPlayToEndTime,
                                                object: playerItem)
         
         player?.play()
-        onPlaybackStatusChange?("\(trackName) 再生中...")
-        
-        // バックグラウンド再生中のコントロールセンターに表示する情報の設定
-        // ここにメディア情報の更新ロジックを追加できます
+        delegate?.musicPlayerDidStartPlaying(item: item)
     }
     
-    /// 再生状態を切り替えます。
+    // --- 再生制御 ---
     func togglePlayback() {
         guard let player = player else { return }
-        if player.rate == 0 {
-            player.play()
-            onPlaybackStatusChange?("再生中...") // 再生中のメッセージを更新
-        } else {
+        
+        if isPlaying {
             player.pause()
-            onPlaybackStatusChange?("一時停止中") // 一時停止中のメッセージを更新
+            delegate?.musicPlayerDidTogglePlayback(isPlaying: false)
+        } else {
+            player.play()
+            delegate?.musicPlayerDidTogglePlayback(isPlaying: true)
         }
     }
     
-    /// 再生を停止します。
-    func stop() {
+    func pausePlayback() {
+        player?.pause()
+        delegate?.musicPlayerDidTogglePlayback(isPlaying: false)
+    }
+    
+    func resumePlayback() {
+        player?.play()
+        delegate?.musicPlayerDidTogglePlayback(isPlaying: true)
+    }
+    
+    func stopPlayback() {
         player?.pause()
         player = nil
-        onPlaybackStatusChange?("停止中")
+        delegate?.musicPlayerDidStopPlayback()
     }
     
-    /// 現在再生中かどうかを返します。
-    var isPlaying: Bool {
-        return player?.rate != 0 && player?.error == nil
+    // --- 前後トラック ---
+    func playNext() {
+        guard currentIndex + 1 < items.count else { return }
+        currentIndex += 1
+        requestAuthAndPlay()
     }
     
-    @objc private func playerDidFinishPlaying() {
-        onPlaybackFinish?()
+    func playPrevious() {
+        guard currentIndex - 1 >= 0 else { return }
+        currentIndex -= 1
+        requestAuthAndPlay()
     }
     
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    // --- 認証リクエストを挟んで再生 ---
+    private func requestAuthAndPlay() {
+        delegate?.musicPlayerDidRequestAuth { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let token):
+                self.playMusic(with: self.items, at: self.currentIndex, token: token)
+            case .failure(let error):
+                self.delegate?.musicPlayerDidReceiveError(message: error.localizedDescription)
+            }
+        }
+    }
+    
+    // --- 再生終了 ---
+    @objc private func handlePlaybackFinished() {
+        delegate?.musicPlayerDidFinishPlaying()
+        playNext() // 自動で次の曲へ進めたい場合
     }
 }
