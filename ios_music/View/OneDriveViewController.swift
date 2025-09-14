@@ -166,6 +166,11 @@ final class OneDriveViewController: UITableViewController {
     @objc private func showMoreActions() {
         let ac = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
+        ac.addAction(UIAlertAction(title: "YouTube ダウンロード", style: .default) { _ in
+            let vc = DownloadViewController()
+            self.present(vc, animated: true)
+        })
+
         ac.addAction(UIAlertAction(title: "Offline 保存", style: .default) { _ in
             self.downloadFolderForOffline()
         })
@@ -182,6 +187,7 @@ final class OneDriveViewController: UITableViewController {
 
         present(ac, animated: true)
     }
+
     
     private func deleteAllOfflineFiles() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
