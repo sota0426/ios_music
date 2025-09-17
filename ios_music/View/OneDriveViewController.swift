@@ -153,7 +153,6 @@ final class OneDriveViewController: UITableViewController {
         
         // 再生パネル分の余白（重なり防止）
         tableView.contentInset.bottom = 60
-        tableView.scrollIndicatorInsets.bottom = 60
         
         // Pull to Refresh
         refreshControl = UIRefreshControl()
@@ -236,7 +235,7 @@ final class OneDriveViewController: UITableViewController {
     
     // --- Now Playing 情報更新 ---
     private func updateNowPlayingInfo(for item: DriveItem) {
-        var nowPlayingInfo: [String: Any] = [
+        let nowPlayingInfo: [String: Any] = [
             MPMediaItemPropertyTitle: item.name
         ]
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
@@ -478,13 +477,19 @@ final class OneDriveViewController: UITableViewController {
     }
     
     private func downloadFolderRecursively(folderId: String, folderName: String, token: String) {
-        GraphClient.shared.listChildren(token: token, folderId: folderId) { result in
+        GraphClient.shared.listChildren(token: token, folderId: folderId) { [weak self] result in
+            guard let self = self else { return }
             switch result {
             case .success(let items):
                 for item in items {
                     if let _ = item.folder {
                         self.downloadFolderRecursively(folderId: item.id, folderName: item.name, token: token)
                     } else if self.isMusicFile(item: item) {
+                        // ダウンロード開始時にラベルを更新
+                        let truncatedName = String(item.name.prefix(5))
+                        DispatchQueue.main.async {
+                            self.playbackStatusLabel.text = "『\(truncatedName)』を保存中..."
+                        }
                         self.downloadFile(item: item, folderName: folderName, token: token)
                     }
                 }
@@ -493,7 +498,7 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
-    
+
     private func downloadFile(item: DriveItem, folderName: String, token: String) {
         guard let url = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items/\(item.id)/content") else { return }
         
@@ -517,6 +522,11 @@ final class OneDriveViewController: UITableViewController {
                 
                 try FileManager.default.moveItem(at: localURL, to: targetFile)
                 print("✅ Saved offline: \(targetFile.lastPathComponent)")
+                
+                // ダウンロード成功後、ラベルを更新
+                DispatchQueue.main.async {
+                    self.playbackStatusLabel.text = "保存が完了しました。"
+                }
             } catch {
                 print("❌ Save failed: \(error)")
             }

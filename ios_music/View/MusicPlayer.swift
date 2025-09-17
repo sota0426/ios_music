@@ -127,3 +127,48 @@ final class MusicPlayer: NSObject {
         NotificationCenter.default.removeObserver(self)
     }
 }
+
+// MusicPlayerクラスに以下のプロパティとメソッドを追加してください
+
+extension MusicPlayer {
+    
+    // MARK: - 追加プロパティ
+    
+    /// 現在再生中のアイテム
+    var currentItem: DriveItem? {
+        guard items.indices.contains(currentIndex) else { return nil }
+        return items[currentIndex]
+    }
+    
+    /// 次の曲があるかどうか
+    var hasNext: Bool {
+        return currentIndex + 1 < items.count
+    }
+    
+    /// 前の曲があるかどうか
+    var hasPrevious: Bool {
+        return currentIndex > 0
+    }
+    
+    // MARK: - 追加メソッド
+    
+    /// 指定した時間にシーク
+    func seek(to time: CMTime, completion: @escaping (Bool) -> Void) {
+        player?.seek(to: time, completionHandler: completion)
+    }
+    
+    /// 現在の再生時間を取得
+    func getCurrentTime() -> CMTime {
+        return player?.currentTime() ?? .zero
+    }
+    
+    /// 曲の総再生時間を取得
+    func getDuration() -> CMTime {
+        return player?.currentItem?.duration ?? .zero
+    }
+    
+    /// 再生状態を取得
+    var isCurrentlyPlaying: Bool {
+        return isPlaying
+    }
+}
