@@ -15,7 +15,7 @@ final class MusicPlayer: NSObject {
     // --- プロパティ ---
     private var player: AVPlayer?
     private var items: [DriveItem] = []
-    private var currentIndex: Int = 0
+    var currentIndex: Int = 0
     
     weak var delegate: MusicPlayerDelegate?
     
@@ -126,14 +126,18 @@ final class MusicPlayer: NSObject {
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
-}
 
-// MusicPlayerクラスに以下のプロパティとメソッドを追加してください
+    func upcomingItems(count : Int)->[DriveItem]{
+        let startIndex = currentIndex + 1
+        let endIndex = min(startIndex + count , items.count)
+        guard startIndex < endIndex else { return[]}
+        return Array(items[startIndex..<endIndex])
+    }
 
-extension MusicPlayer {
-    
-    // MARK: - 追加プロパティ
-    
+    var allItems:[DriveItem]{
+        return items
+    }
+
     /// 現在再生中のアイテム
     var currentItem: DriveItem? {
         guard items.indices.contains(currentIndex) else { return nil }

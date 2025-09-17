@@ -55,6 +55,14 @@ final class PlayerViewController: UIViewController {
         return label
     }()
     
+    private let upcomingTracksStackView:UIStackView = {
+        let stackView = UIStackView()
+        stackView.axis = .vertical
+        stackView.spacing = 8
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        return stackView
+    }()
+
     private lazy var previousButton: UIButton = {
         let button = UIButton(type: .system)
         button.setImage(UIImage(systemName: "backward.fill"), for: .normal)
@@ -102,6 +110,7 @@ final class PlayerViewController: UIViewController {
         button.addTarget(self, action: #selector(dismissPlayer), for: .touchUpInside)
         return button
     }()
+
     
     // MARK: - Initialization
     init(musicPlayer: MusicPlayer) {
@@ -140,6 +149,7 @@ final class PlayerViewController: UIViewController {
         view.addSubview(playbackSlider)
         view.addSubview(currentTimeLabel)
         view.addSubview(remainingTimeLabel)
+        view.addSubview(upcomingTracksStackView)
         
         let playbackStackView = UIStackView(arrangedSubviews: [previousButton, playPauseButton, nextButton, stopButton])
         playbackStackView.axis = .horizontal
@@ -173,6 +183,12 @@ final class PlayerViewController: UIViewController {
             
             playbackStackView.topAnchor.constraint(equalTo: playbackSlider.bottomAnchor, constant: 50),
             playbackStackView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+
+            upcomingTracksStackView.topAnchor.constraint(equalTo: playbackStackView.bottomAnchor,constant:40),
+            upcomingTracksStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant:20),
+            upcomingTracksStackView.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-20)
+
+
         ])
         
         // スライダーのアクション設定
@@ -187,6 +203,11 @@ final class PlayerViewController: UIViewController {
     @objc private func handlePlayPauseButtonTap() { musicPlayer.togglePlayback() }
     @objc private func handleStopButtonTap() { musicPlayer.stopPlayback() }
     @objc private func handleNextButtonTap() { musicPlayer.playNext() }
+
+    @objc private func handleUpcomingTrackTap(_ sender:UIButton){
+        let indexToPlay = sender.tag
+        musicPlayer.playMusic(with:musicPlayer.allItems , at:indexToPlay)
+    }
 
     
     @objc private func dismissPlayer() {
@@ -214,11 +235,11 @@ final class PlayerViewController: UIViewController {
     private func updateUI(with item: DriveItem?) {
         guard let item = item else {
             titleLabel.text = "曲が選択されていません"
-            artistLabel.text = nil // アーティスト名をクリア
             playbackSlider.value = 0
             playbackSlider.maximumValue = 0
             currentTimeLabel.text = "0:00"
             remainingTimeLabel.text = "-0:00"
+            clearUpcomingTracks()
             return
         }
         
@@ -248,6 +269,32 @@ final class PlayerViewController: UIViewController {
         } else {
             remainingTimeLabel.text = "-0:00"
         }
+
+        updateUpcomingTracksUI()
+    }
+
+
+    private func updateUpcomingTracksUI(){
+        clearUpcomingTracks()
+
+        let nextItems = musicPlayer.upcomingItems(count:5) //何曲表示するか
+
+        for(index , nextItem ) in nextItems.enumerated(){
+            let button = UIButton(type: .system)
+            button.contentHorizontalAlignment = .left
+            button.setTitle("\(index + 1 ).\(nextItem.name)",for:.normal)
+            button.setTitleColor(.label, for:.normal)
+            button.titleLabel?.font = .systemFont(ofSize:16 , weight: .regular)
+            button.titleLabel?.lineBreakMode = .byTruncatingTail
+            button.tag = musicPlayer.currentIndex + 1 + index
+            button.addTarget(self, action: #selector(handleUpcomingTrackTap(_:)),for:.touchUpInside)
+
+            upcomingTracksStackView.addArrangedSubview(button)
+        }
+    }
+
+    private func clearUpcomingTracks(){
+        upcomingTracksStackView.arrangedSubviews.forEach{$0.removeFromSuperview()}
     }
     
     private func setupTimeObserver() {
