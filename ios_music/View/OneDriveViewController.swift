@@ -150,7 +150,14 @@ final class OneDriveViewController: UITableViewController {
             playbackStatusLabel.trailingAnchor.constraint(equalTo: playbackContainer.trailingAnchor, constant: -20),
             playbackStatusLabel.centerYAnchor.constraint(equalTo: playbackContainer.centerYAnchor)
         ])
-        
+
+
+        //ラベルをタップする
+        playbackStatusLabel.isUserInteractionEnabled = true
+        let tap = UITapGestureRecognizer(target:self,action: #selector(showPlayerScreen))
+        playbackStatusLabel.addGestureRecognizer(tap)
+
+
         // 再生パネル分の余白（重なり防止）
         tableView.contentInset.bottom = 60
         
@@ -159,6 +166,11 @@ final class OneDriveViewController: UITableViewController {
         refreshControl?.addTarget(self, action: #selector(reload), for: .valueChanged)
         
         reload()
+    }
+
+    @objc private func showPlayerScreen(){
+        let vc = PlayerViewController(musicPlayer:musicPlayer)
+        present(vc,animated:true)
     }
     
     // --- ナビゲーション右上アクション ---
