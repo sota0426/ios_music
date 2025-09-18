@@ -4,13 +4,24 @@ import AVFoundation
 import MediaPlayer
 
 /// OneDriveの音楽ファイルとフォルダを階層的に表示し、音楽を再生するビューコントローラーです。
-final class OneDriveViewController: UITableViewController {
+final class OneDriveViewController: UITableViewController, HiddenFoldersViewControllerDelegate {
     
     // --- プロパティ ---
     private var items: [DriveItem] = []
     private var currentFolderId: String? = nil
     
     private let musicPlayer = MusicPlayer()
+    
+    private let hiddenFolderIdsKey = "hiddenFolderIds"
+    private var hiddenFolderIds: Set<String>{
+        get{
+            let ids = UserDefaults.standard.array(forKey: hiddenFolderIdsKey) as? [String] ?? []
+            return Set(ids)
+        }
+        set{
+            UserDefaults.standard.set(Array(newValue),forKey: hiddenFolderIdsKey)
+        }
+    }
     
     // --- UIコンポーネント ---
     private lazy var playbackContainer: UIView = {
@@ -186,10 +197,15 @@ final class OneDriveViewController: UITableViewController {
             self.downloadFolderForOffline()
         })
 
+        ac.addAction(UIAlertAction(title: "非表示フォルダ一覧", style: .default) { _ in
+            let vc = HiddenFoldersViewController(allItems: self.allFetchedItems)
+            vc.delegate = self
+            self.navigationController?.pushViewController(vc, animated: true)
+        })
+
         ac.addAction(UIAlertAction(title: "Offline データをすべて削除", style: .destructive) { _ in
             self.deleteAllOfflineFiles()
         })
-
         ac.addAction(UIAlertAction(title: "サインアウト", style: .destructive) { _ in
             self.signOut()
         })
@@ -267,6 +283,7 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
+    private var allFetchedItems: [DriveItem] = [] // 追加
     
     private func fetchItems(token: String, folderId: String?, completion: (() -> Void)? = nil) {
         GraphClient.shared.listChildren(token: token, folderId: folderId) { [weak self] result in
@@ -274,6 +291,7 @@ final class OneDriveViewController: UITableViewController {
                 guard let self = self else { return }
                 switch result {
                 case .success(let items):
+                    self.allFetchedItems = items // 👈 ここで全件保存
                     self.filterAndSortItems(items: items, token: token) {
                         self.endRefreshing()
                         self.tableView.reloadData()
@@ -287,10 +305,15 @@ final class OneDriveViewController: UITableViewController {
             }
         }
     }
-    
+
     private func filterAndSortItems(items: [DriveItem], token: String, completion: @escaping () -> Void) {
         var newItems: [DriveItem] = []
         for item in items {
+            // フォルダが非表示設定されていたらスキップ
+            if let _ = item.folder, hiddenFolderIds.contains(item.id) {
+                continue
+            }
+            
             if item.folder != nil {
                 newItems.append(item)
             } else if isMusicFile(item: item) {
@@ -410,17 +433,39 @@ final class OneDriveViewController: UITableViewController {
         }
     }
     
-    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+    override func tableView(_ tableView: UITableView,
+                            trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         let item = items[indexPath.row]
-        guard item.file != nil else { return nil }
         
-        if isOfflineAvailable(for: item) {
-            let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] (_, _, completion) in
-                self?.deleteOfflineFile(for: item)
-                tableView.reloadRows(at: [indexPath], with: .automatic)
+        // フォルダの場合 → 表示/非表示を切り替え
+        if item.folder != nil {
+            let isHidden = hiddenFolderIds.contains(item.id)
+            let actionTitle = isHidden ? "表示" : "非表示"
+            
+            let toggleAction = UIContextualAction(style: .normal, title: actionTitle) { [weak self] (_, _, completion) in
+                guard let self = self else { return }
+                if isHidden {
+                    self.hiddenFolderIds.remove(item.id)
+                } else {
+                    self.hiddenFolderIds.insert(item.id)
+                }
+                self.reload()
                 completion(true)
             }
-            return UISwipeActionsConfiguration(actions: [deleteAction])
+            toggleAction.backgroundColor = isHidden ? .systemGreen : .systemGray
+            return UISwipeActionsConfiguration(actions: [toggleAction])
+        }
+        
+        // ファイルの場合は既存の削除処理
+        if item.file != nil {
+            if isOfflineAvailable(for: item) {
+                let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] (_, _, completion) in
+                    self?.deleteOfflineFile(for: item)
+                    tableView.reloadRows(at: [indexPath], with: .automatic)
+                    completion(true)
+                }
+                return UISwipeActionsConfiguration(actions: [deleteAction])
+            }
         }
         return nil
     }
@@ -590,4 +635,9 @@ extension OneDriveViewController: MusicPlayerDelegate {
     func musicPlayerDidRequestAuth(completion: @escaping (Result<String, Error>) -> Void) {
         AuthManager.shared.withAccessToken(from: self, completion)
     }
+    func hiddenFoldersDidChange() {
+        // 👇 即時更新
+        self.reload()
+    }
+    
 }

@@ -175,4 +175,18 @@ final class MusicPlayer: NSObject {
     var isCurrentlyPlaying: Bool {
         return isPlaying
     }
+    
+    func addPeriodicTimeObserver(interval: CMTime,
+                                 handler: @escaping (CMTime) -> Void) -> Any? {
+        return player?.addPeriodicTimeObserver(forInterval: interval,
+                                               queue: .main,
+                                               using: handler)
+    }
+
+    func removePeriodicTimeObserver(_ observer: Any) {
+        if let player = player {
+            player.removeTimeObserver(observer)
+        }
+    }
+    
 }

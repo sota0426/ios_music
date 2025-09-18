@@ -130,13 +130,12 @@ final class PlayerViewController: UIViewController {
         view.backgroundColor = .systemBackground
         setupUI()
         updateUI(with: musicPlayer.currentItem)
-        // setupTimeObserver()
+         setupTimeObserver()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // 画面が閉じられるときにオブザーバーを削除
-        // removeTimeObserver()
+         removeTimeObserver()
     }
 
 
@@ -216,19 +215,40 @@ final class PlayerViewController: UIViewController {
     
     @objc private func handleSliderChange() {
         // ユーザーがスライダーをドラッグ中に再生時間を更新
-        // let newTime = playbackSlider.value
-        // currentTimeLabel.text = formatTime(TimeInterval(newTime))
+        let newTime = playbackSlider.value
         
-        // if let duration = musicPlayer.player?.currentItem?.duration.seconds, duration.isFinite {
-        //     remainingTimeLabel.text = formatTime(duration - Double(newTime))
-        // }
+        // UIラベル更新
+        currentTimeLabel.text = formatTime(TimeInterval(newTime))
+        
+        // 総再生時間を MusicPlayer から取得
+        let duration = musicPlayer.getDuration().seconds
+        if duration.isFinite {
+            remainingTimeLabel.text = formatTime(duration - Double(newTime))
+        }
+        
+        // MusicPlayer にシーク
+        let targetTime = CMTime(seconds: Double(newTime), preferredTimescale: 600)
+        musicPlayer.seek(to: targetTime) { [weak self] _ in
+            // シーク完了後に必要なら追加処理を記述
+            // 例: ラベル再更新やアニメーションなど
+            self?.currentTimeLabel.text = self?.formatTime(TimeInterval(newTime))
+        }
     }
     
     @objc private func handleSliderDidEndSlide() {
         // スライダーのドラッグが終了したら、AVPlayerの再生位置を移動
-        // musicPlayer.seekTo(time: TimeInterval(playbackSlider.value))
+        let targetTime = CMTime(seconds: Double(playbackSlider.value),
+                                preferredTimescale: 600)
+        musicPlayer.seek(to: targetTime) { [weak self] _ in
+            // シーク後にラベルを更新
+            self?.currentTimeLabel.text = self?.formatTime(TimeInterval(self?.playbackSlider.value ?? 0))
+            
+            let duration = self?.musicPlayer.getDuration().seconds ?? 0
+            if duration.isFinite {
+                self?.remainingTimeLabel.text = self?.formatTime(duration - Double(self?.playbackSlider.value ?? 0))
+            }
+        }
     }
-    
 
 
     // MARK: - Player State Updates
@@ -297,32 +317,35 @@ final class PlayerViewController: UIViewController {
         upcomingTracksStackView.arrangedSubviews.forEach{$0.removeFromSuperview()}
     }
     
+    private var timeObserver: Any?
+
     private func setupTimeObserver() {
-        // let time = CMTime(seconds: 1, preferredTimescale: 1000)
-        // timeObserverToken = musicPlayer.player?.addPeriodicTimeObserver(forInterval: time, queue: .main) { [weak self] time in
-        //     guard let self = self, let currentItem = self.musicPlayer.player?.currentItem else { return }
+        // 1秒ごとに現在時間を更新
+        let interval = CMTime(seconds: 1, preferredTimescale: 1000)
+        timeObserver = musicPlayer.addPeriodicTimeObserver(interval: interval) { [weak self] currentTime in
+            guard let self = self else { return }
             
-        //     let currentTime = time.seconds
-        //     let duration = currentItem.duration.seconds
+            let currentSeconds = currentTime.seconds
+            let duration = self.musicPlayer.getDuration().seconds
             
-        //     // スライダーが操作されていない時のみ値を更新
-        //     if !self.playbackSlider.isTracking {
-        //         self.playbackSlider.value = Float(currentTime)
-        //     }
+            // スライダーが操作されていない時のみ値を更新
+            if !self.playbackSlider.isTracking {
+                self.playbackSlider.value = Float(currentSeconds)
+            }
             
-        //     if duration.isFinite {
-        //         let remainingTime = duration - currentTime
-        //         self.currentTimeLabel.text = self.formatTime(currentTime)
-        //         self.remainingTimeLabel.text = self.formatTime(remainingTime)
-        //     }
-        // }
+            if duration.isFinite {
+                let remainingTime = duration - currentSeconds
+                self.currentTimeLabel.text = self.formatTime(currentSeconds)
+                self.remainingTimeLabel.text = self.formatTime(remainingTime)
+            }
+        }
     }
-    
+
     private func removeTimeObserver() {
-        // if let token = timeObserverToken {
-        //     musicPlayer.player?.removeTimeObserver(token)
-        //     timeObserverToken = nil
-        // }
+        if let observer = timeObserver {
+            musicPlayer.removePeriodicTimeObserver(observer)
+            timeObserver = nil
+        }
     }
     
     private func formatTime(_ time: TimeInterval) -> String {
